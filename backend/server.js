@@ -1,372 +1,147 @@
-require("dotenv").config();
-
-const express = require("express");
-const cors = require("cors");
-const { randomUUID } = require("node:crypto");
-const mysql = require("mysql2/promise");
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
 
 const app = express();
-const PORT = Number(process.env.PORT) || 3053;
-const TABLE = "`Aedawat_Jumpla`";
-
-const pool = mysql.createPool({
-  host: process.env.DB_HOST,
-  port: Number(process.env.DB_PORT) || 3306,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-});
-
 app.use(cors());
 app.use(express.json());
 
-const seedEmployees = [
-  {
-    name: "Ava Johnson",
-    position: "HR Manager",
-    status: "Active",
-    salary: 85000,
-  },
-  {
-    name: "Liam Smith",
-    position: "Software Engineer",
-    status: "Active",
-    salary: 105000,
-  },
-  {
-    name: "Emma Davis",
-    position: "Recruiter",
-    status: "On Leave",
-    salary: 62000,
-  },
-  {
-    name: "Noah Wilson",
-    position: "Product Designer",
-    status: "Active",
-    salary: 78000,
-  },
-  {
-    name: "Olivia Brown",
-    position: "Finance Analyst",
-    status: "Active",
-    salary: 72000,
-  },
+// In-Memory Employee Array ตามข้อกำหนดข้อสอบ
+let employees = [
+  { id: "1", name: "John Doe", position: "Software Engineer", status: "Active", salary: 45000 },
+  { id: "2", name: "Jane Smith", position: "HR Manager", status: "Active", salary: 65000 },
+  { id: "3", name: "Bob Johnson", position: "Junior Developer", status: "On Leave", salary: 25000 },
+  { id: "4", name: "Alice Brown", position: "Senior Architect", status: "Active", salary: 90000 },
+  { id: "5", name: "Charlie Davis", position: "Intern", status: "Active", salary: 18000 }
 ];
 
-async function initializeDatabase() {
-  if (
-    !process.env.DB_HOST ||
-    !process.env.DB_USER ||
-    !process.env.DB_NAME ||
-    !process.env.DB_PASSWORD
-  ) {
-    throw new Error(
-      "Database configuration missing. Set DB_HOST, DB_USER, DB_PASSWORD, and DB_NAME in backend/.env."
-    );
+// ----------------------------------------------------
+// Phase 1: Authentication
+// ----------------------------------------------------
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  if (username === 'admin' && password === 'password123') {
+    return res.status(200).json({ success: true, token: 'mock-jwt-token' });
   }
-
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS ${TABLE} (
-      id VARCHAR(36) NOT NULL PRIMARY KEY,
-      name VARCHAR(150) NOT NULL,
-      position VARCHAR(150) NOT NULL,
-      status ENUM('Active', 'On Leave') NOT NULL DEFAULT 'Active',
-      salary DECIMAL(12, 2) NOT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
-
-  const [rows] = await pool.query(`SELECT COUNT(*) AS employeeCount FROM ${TABLE}`);
-  if (Number(rows[0].employeeCount) === 0) {
-    const values = seedEmployees.map((employee) => [
-      randomUUID(),
-      employee.name,
-      employee.position,
-      employee.status,
-      employee.salary,
-    ]);
-
-    await pool.query(
-      `INSERT INTO ${TABLE} (id, name, position, status, salary) VALUES ?`,
-      [values]
-    );
-  }
-}
-
-function toEmployee(row) {
-  return {
-    id: row.id,
-    name: row.name,
-    position: row.position,
-    status: row.status,
-    salary: Number(row.salary),
-  };
-}
-
-function validateEmployeeInput(body) {
-  const { name, position, salary } = body || {};
-  const numericSalary = Number(salary);
-
-  if (
-    typeof name !== "string" ||
-    !name.trim() ||
-    typeof position !== "string" ||
-    !position.trim() ||
-    (typeof salary !== "number" && typeof salary !== "string") ||
-    String(salary).trim() === "" ||
-    !Number.isFinite(numericSalary) ||
-    numericSalary < 0
-  ) {
-    return null;
-  }
-
-  return {
-    name: name.trim(),
-    position: position.trim(),
-    salary: numericSalary,
-  };
-}
-
-app.post("/api/login", (req, res) => {
-  const { username, password } = req.body || {};
-
-  if (username === "admin" && password === "password123") {
-    return res.status(200).json({
-      success: true,
-      token: "mock-jwt-token",
-    });
-  }
-
-  return res.status(401).json({
-    success: false,
-    message: "Invalid username or password",
-  });
+  return res.status(401).json({ success: false, message: 'Invalid credentials' });
 });
 
-app.get("/api/employees", async (req, res) => {
-  const [rows] = await pool.query(
-    `SELECT id, name, position, status, salary FROM ${TABLE} ORDER BY created_at, name`
-  );
-  return res.status(200).json(rows.map(toEmployee));
+// ----------------------------------------------------
+// Phase 1: CRUD Endpoints
+// ----------------------------------------------------
+
+// GET /api/employees - ดึงข้อมูลพนักงานทั้งหมด
+app.get('/api/employees', (req, res) => {
+  res.status(200).json(employees);
 });
 
-app.post("/api/employees", async (req, res) => {
-  const input = validateEmployeeInput(req.body);
-
-  if (!input) {
-    return res.status(400).json({
-      success: false,
-      message: "name, position, and a valid non-negative salary are required",
-    });
+// POST /api/employees - เพิ่มพนักงานใหม่
+app.post('/api/employees', (req, res) => {
+  const { name, position, salary } = req.body;
+  
+  if (!name || !position || salary === undefined || salary === '' || isNaN(Number(salary))) {
+    return res.status(400).json({ message: 'All fields (name, position, salary) are required.' });
   }
 
-  const employee = {
-    id: randomUUID(),
-    ...input,
-    status: "Active",
+  const newEmp = {
+    id: String(Date.now()),
+    name,
+    position,
+    status: 'Active',
+    salary: Number(salary)
   };
 
-  await pool.execute(
-    `INSERT INTO ${TABLE} (id, name, position, status, salary) VALUES (?, ?, ?, ?, ?)`,
-    [
-      employee.id,
-      employee.name,
-      employee.position,
-      employee.status,
-      employee.salary,
-    ]
-  );
-
-  return res.status(201).json(employee);
+  employees.push(newEmp);
+  res.status(201).json(newEmp);
 });
 
-app.put("/api/employees/:id", async (req, res) => {
-  const input = validateEmployeeInput(req.body);
+// PUT /api/employees/:id/status - สลับสถานะ (Active <-> On Leave)
+app.put('/api/employees/:id/status', (req, res) => {
+  const { id } = req.params;
+  const emp = employees.find(e => e.id === id);
 
-  if (!input) {
-    return res.status(400).json({
-      success: false,
-      message: "name, position, and a valid non-negative salary are required",
-    });
+  if (!emp) {
+    return res.status(404).json({ message: 'Employee not found' });
   }
 
-  const [result] = await pool.execute(
-    `UPDATE ${TABLE} SET name = ?, position = ?, salary = ? WHERE id = ?`,
-    [input.name, input.position, input.salary, req.params.id]
-  );
-
-  if (result.affectedRows === 0) {
-    return res.status(404).json({
-      success: false,
-      message: "Employee not found",
-    });
-  }
-
-  const [rows] = await pool.execute(
-    `SELECT id, name, position, status, salary FROM ${TABLE} WHERE id = ?`,
-    [req.params.id]
-  );
-
-  return res.status(200).json(toEmployee(rows[0]));
+  emp.status = emp.status === 'Active' ? 'On Leave' : 'Active';
+  res.status(200).json(emp);
 });
 
-app.put("/api/employees/:id/status", async (req, res) => {
-  const [result] = await pool.execute(
-    `UPDATE ${TABLE}
-     SET status = IF(status = 'Active', 'On Leave', 'Active')
-     WHERE id = ?`,
-    [req.params.id]
-  );
+// DELETE /api/employees/:id - ลบพนักงาน
+app.delete('/api/employees/:id', (req, res) => {
+  const { id } = req.params;
+  const index = employees.findIndex(e => e.id === id);
 
-  if (result.affectedRows === 0) {
-    return res.status(404).json({
-      success: false,
-      message: "Employee not found",
-    });
+  if (index === -1) {
+    return res.status(404).json({ message: 'Employee not found' });
   }
 
-  const [rows] = await pool.execute(
-    `SELECT id, name, position, status, salary FROM ${TABLE} WHERE id = ?`,
-    [req.params.id]
-  );
-
-  return res.status(200).json(toEmployee(rows[0]));
+  employees.splice(index, 1);
+  res.status(200).json({ success: true, message: 'Employee deleted' });
 });
 
-app.delete("/api/employees/:id", async (req, res) => {
-  const [rows] = await pool.execute(
-    `SELECT id, name, position, status, salary FROM ${TABLE} WHERE id = ?`,
-    [req.params.id]
-  );
-
-  if (rows.length === 0) {
-    return res.status(404).json({
-      success: false,
-      message: "Employee not found",
-    });
-  }
-
-  await pool.execute(`DELETE FROM ${TABLE} WHERE id = ?`, [req.params.id]);
-  return res.status(200).json({
-    success: true,
-    employee: toEmployee(rows[0]),
-  });
-});
-
-app.get("/api/employees/salary-clusters", async (req, res) => {
-  const [rows] = await pool.query(`SELECT salary FROM ${TABLE}`);
-  const salaries = rows.map((row) => Number(row.salary));
-  const k = 3;
-  let centroids;
-  let clusters;
+// ----------------------------------------------------
+// Phase 2: K-Means Salary Clustering (k=3)
+// ----------------------------------------------------
+app.get('/api/employees/salary-clusters', (req, res) => {
+  const salaries = employees.map(e => Number(e.salary)).filter(s => !isNaN(s));
 
   if (salaries.length === 0) {
-    centroids = [0, 0, 0];
-    clusters = [[], [], []];
-  } else {
-    const sortedSalaries = [...salaries].sort((a, b) => a - b);
-    centroids = [
-      sortedSalaries[0],
-      sortedSalaries[Math.floor((sortedSalaries.length - 1) / 2)],
-      sortedSalaries[sortedSalaries.length - 1],
-    ];
+    return res.status(200).json({ success: true, clusters: [] });
+  }
 
-    const assignSalaries = () => {
-      const assigned = Array.from({ length: k }, () => []);
+  let k = Math.min(3, salaries.length);
+  salaries.sort((a, b) => a - b);
 
-      for (const salary of salaries) {
-        let closestIndex = 0;
-        for (let index = 1; index < k; index += 1) {
-          if (
-            Math.abs(salary - centroids[index]) <
-            Math.abs(salary - centroids[closestIndex])
-          ) {
-            closestIndex = index;
-          }
+  // กำหนด Centroids เริ่มต้น
+  let centroids = [];
+  if (k === 1) centroids = [salaries[0]];
+  else if (k === 2) centroids = [salaries[0], salaries[salaries.length - 1]];
+  else centroids = [salaries[0], salaries[Math.floor(salaries.length / 2)], salaries[salaries.length - 1]];
+
+  let clusters = [[], [], []];
+
+  for (let iter = 0; iter < 20; iter++) {
+    clusters = Array.from({ length: k }, () => []);
+
+    for (let s of salaries) {
+      let closestIndex = 0;
+      let minDiff = Math.abs(s - centroids[0]);
+      for (let i = 1; i < k; i++) {
+        let diff = Math.abs(s - centroids[i]);
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestIndex = i;
         }
-        assigned[closestIndex].push(salary);
       }
-
-      return assigned;
-    };
-
-    for (let iteration = 0; iteration < 100; iteration += 1) {
-      clusters = assignSalaries();
-      const nextCentroids = centroids.map((centroid, index) => {
-        const cluster = clusters[index];
-        return cluster.length
-          ? cluster.reduce((sum, salary) => sum + salary, 0) / cluster.length
-          : centroid;
-      });
-
-      const converged = nextCentroids.every(
-        (centroid, index) => centroid === centroids[index]
-      );
-      centroids = nextCentroids;
-      if (converged) break;
+      clusters[closestIndex].push(s);
     }
 
-    clusters = assignSalaries();
+    let newCentroids = clusters.map((cls, idx) => {
+      if (cls.length === 0) return centroids[idx];
+      return cls.reduce((sum, val) => sum + val, 0) / cls.length;
+    });
+
+    if (centroids.every((c, idx) => c === newCentroids[idx])) break;
+    centroids = newCentroids;
   }
 
-  const result = centroids
-    .map((centroid, index) => ({
-      group: `Tier ${index + 1}`,
-      centroid,
-      count: clusters[index].length,
+  const formattedClusters = clusters
+    .map((cls, idx) => ({
+      group: `Tier ${idx + 1}`,
+      centroid: cls.length > 0 ? Math.round(cls.reduce((a, b) => a + b, 0) / cls.length) : 0,
+      count: cls.length
     }))
-    .sort((a, b) => a.centroid - b.centroid)
-    .map((cluster, index) => ({
-      ...cluster,
-      group: `Tier ${index + 1}`,
-    }));
+    .filter(c => c.count > 0);
 
-  return res.status(200).json({
+  res.status(200).json({
     success: true,
-    clusters: result,
+    clusters: formattedClusters
   });
 });
 
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: "Route not found",
-  });
+const PORT = process.env.PORT || 3053;
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
 });
-
-app.use((err, req, res, next) => {
-  if (res.headersSent) {
-    return next(err);
-  }
-
-  if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
-    return res.status(400).json({
-      success: false,
-      message: "Invalid JSON request body",
-    });
-  }
-
-  console.error(err);
-  return res.status(500).json({
-    success: false,
-    message: "Internal server error",
-  });
-});
-
-if (require.main === module) {
-  initializeDatabase()
-    .then(() => {
-      app.listen(PORT, () => {
-        console.log(`HR API server listening on port ${PORT}`);
-      });
-    })
-    .catch((error) => {
-      console.error("Failed to initialize MySQL database:", error.message);
-      process.exitCode = 1;
-    });
-}
-
-module.exports = app;

@@ -32,7 +32,7 @@ type ApiError = {
   message?: string;
 };
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3053';
 const FONT_FAMILY = Platform.select({
   web: '"Noto Sans Thai", "Leelawadee UI", Tahoma, sans-serif',
   default: undefined,
