@@ -6,7 +6,7 @@ const { randomUUID } = require("node:crypto");
 const mysql = require("mysql2/promise");
 
 const app = express();
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.PORT) || 3053;
 const TABLE = "`Aedawat_Jumpla`";
 
 const pool = mysql.createPool({
